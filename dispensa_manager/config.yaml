@@ -1,6 +1,6 @@
 name: "Dispensa Manager"
 description: "Backend API per la gestione della dispensa con barcode scanner, PWA iPhone e notifiche Telegram"
-version: "1.0.0"
+version: "1.0.1"
 slug: dispensa_manager
 init: false
 arch:

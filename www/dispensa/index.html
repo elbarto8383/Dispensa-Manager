@@ -302,7 +302,7 @@
         <input type="number" id="set-giorni" value="3" min="1" max="30">
       </div>
     </div>
-    <div style="text-align: center; margin-top: 20px; font-size: 12px; color: var(--hint);">Dispensa Manager v1.0</div>
+    <div style="text-align: center; margin-top: 20px; font-size: 12px; color: var(--hint);">Dispensa Manager v1.0.1</div>
   </div>
   <div class="tab-bar">
     <div class="tab" onclick="showTab('inventario')">
@@ -328,7 +328,7 @@
 
 <script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>
 <script>
-const API_BASE = () => localStorage.getItem('dispensa_url') || 'http://192.168.1.83:5000';
+const API_BASE = () => localStorage.getItem('dispensa_url') || 'http://homeassistant.local:5000';
 
 let codeReader = null;
 let prodottoCorrente = {};

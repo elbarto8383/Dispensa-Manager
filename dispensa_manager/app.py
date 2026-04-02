@@ -18,7 +18,8 @@ def after_request(response):
 
 HA_URL = os.environ.get("HA_URL", "http://supervisor/core")
 HA_TOKEN = os.environ.get("SUPERVISOR_TOKEN", "")
-print(f"SUPERVISOR_TOKEN presente: {bool(HA_TOKEN)}", flush=True)
+print(f"SUPERVISOR_TOKEN presente: {bool(os.environ.get('SUPERVISOR_TOKEN'))}", flush=True)
+print(f"Token in uso: {'SUPERVISOR' if os.environ.get('SUPERVISOR_TOKEN') else 'LONG-LIVED'}", flush=True)
 DB_PATH = "/config/dispensa.db"
 
 OPTIONS_PATH = "/data/options.json"
@@ -69,6 +70,18 @@ def init_db():
             data_aggiunta TEXT DEFAULT (datetime('now'))
         )
     """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS storico_movimenti (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ean TEXT,
+            nome TEXT NOT NULL,
+            marca TEXT,
+            categoria TEXT,
+            tipo TEXT NOT NULL,
+            quantita INTEGER DEFAULT 1,
+            data TEXT DEFAULT (datetime('now'))
+        )
+    """)
     conn.commit()
     # Migrazione DB — aggiunge colonne se non esistono
     try:
@@ -77,6 +90,10 @@ def init_db():
         pass
     try:
         c.execute("ALTER TABLE prodotti ADD COLUMN nutriscore TEXT")
+    except:
+        pass
+    try:
+        c.execute("ALTER TABLE prodotti ADD COLUMN posizione TEXT DEFAULT 'Dispensa'")
     except:
         pass
     try:
@@ -109,6 +126,19 @@ def aggiungi_a_lista_spesa(nome, ean="", marca=""):
         """, (nome, ean, marca))
         conn.commit()
     conn.close()
+
+def log_movimento(nome, tipo, ean="", marca="", categoria="", quantita=1):
+    """Logga un movimento nel storico (acquisto, consumo, scaduto, eliminato)"""
+    try:
+        conn = get_db()
+        conn.execute("""
+            INSERT INTO storico_movimenti (ean, nome, marca, categoria, tipo, quantita)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (ean, nome, marca, categoria, tipo, quantita))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Errore log movimento: {e}")
 
 def aggiorna_sensori_ha():
     conn = get_db()
@@ -219,7 +249,7 @@ def invia_notifica_telegram(in_scadenza, esauriti):
 
 @app.route("/api/barcode/<ean>", methods=["GET"])
 def cerca_barcode(ean):
-    headers = {"User-Agent": "DispensaManager/1.0"}
+    headers = {"User-Agent": "DispensaManager/1.0.1"}
 
     # 1. Controlla prima la cache locale
     conn = get_db()
@@ -434,6 +464,14 @@ def aggiungi_prodotto():
     ))
     conn.commit()
     conn.close()
+    log_movimento(
+        nome=data.get("nome", "Prodotto"),
+        tipo="acquisto",
+        ean=data.get("ean", ""),
+        marca=data.get("marca", ""),
+        categoria=data.get("categoria", ""),
+        quantita=data.get("quantita", 1)
+    )
     aggiorna_sensori_ha()
     return jsonify({"ok": True}), 201
 
@@ -441,6 +479,8 @@ def aggiungi_prodotto():
 def aggiorna_prodotto(id):
     data = request.json
     conn = get_db()
+    # Leggi prodotto prima dell'aggiornamento per loggare
+    p = conn.execute("SELECT * FROM prodotti WHERE id = ?", (id,)).fetchone()
     fields = []
     values = []
     for campo in ["nome", "quantita", "scadenza", "note"]:
@@ -452,15 +492,30 @@ def aggiorna_prodotto(id):
         conn.execute(f"UPDATE prodotti SET {', '.join(fields)} WHERE id = ?", values)
         conn.commit()
     conn.close()
+    # Logga consumo se quantita è diminuita
+    if p and "quantita" in data and data["quantita"] < p["quantita"]:
+        log_movimento(
+            nome=p["nome"], tipo="consumo",
+            ean=p["ean"] or "", marca=p["marca"] or "",
+            categoria=p["categoria"] or "",
+            quantita=p["quantita"] - data["quantita"]
+        )
     aggiorna_sensori_ha()
     return jsonify({"ok": True})
 
 @app.route("/api/prodotti/<int:id>", methods=["DELETE"])
 def elimina_prodotto(id):
     conn = get_db()
+    p = conn.execute("SELECT * FROM prodotti WHERE id = ?", (id,)).fetchone()
     conn.execute("DELETE FROM prodotti WHERE id = ?", (id,))
     conn.commit()
     conn.close()
+    if p:
+        log_movimento(
+            nome=p["nome"], tipo="eliminato",
+            ean=p["ean"] or "", marca=p["marca"] or "",
+            categoria=p["categoria"] or "", quantita=p["quantita"]
+        )
     aggiorna_sensori_ha()
     return jsonify({"ok": True})
 
@@ -578,6 +633,57 @@ def elimina_barcode_cache(ean):
     conn.commit()
     conn.close()
     return jsonify({"ok": True})
+
+@app.route("/api/statistiche", methods=["GET"])
+def statistiche():
+    conn = get_db()
+    oggi = datetime.now().date()
+    mese_fa = (oggi.replace(day=1)).strftime("%Y-%m-%d")
+
+    # Totale movimenti per tipo
+    acquisti = conn.execute("SELECT COUNT(*) as n FROM storico_movimenti WHERE tipo='acquisto'").fetchone()["n"]
+    consumi = conn.execute("SELECT COUNT(*) as n FROM storico_movimenti WHERE tipo='consumo'").fetchone()["n"]
+    eliminati = conn.execute("SELECT COUNT(*) as n FROM storico_movimenti WHERE tipo='eliminato'").fetchone()["n"]
+
+    # Prodotti più acquistati (top 5)
+    top_acquistati = conn.execute("""
+        SELECT nome, marca, SUM(quantita) as totale
+        FROM storico_movimenti WHERE tipo='acquisto'
+        GROUP BY ean ORDER BY totale DESC LIMIT 5
+    """).fetchall()
+
+    # Prodotti più consumati (top 5)
+    top_consumati = conn.execute("""
+        SELECT nome, marca, SUM(quantita) as totale
+        FROM storico_movimenti WHERE tipo='consumo'
+        GROUP BY ean ORDER BY totale DESC LIMIT 5
+    """).fetchall()
+
+    # Acquisti questo mese
+    acquisti_mese = conn.execute("""
+        SELECT COUNT(*) as n FROM storico_movimenti
+        WHERE tipo='acquisto' AND data >= ?
+    """, (mese_fa,)).fetchone()["n"]
+
+    # Prodotti attualmente in dispensa per posizione
+    per_posizione = conn.execute("""
+        SELECT posizione, COUNT(*) as n FROM prodotti
+        WHERE quantita > 0 GROUP BY posizione
+    """).fetchall()
+
+    conn.close()
+
+    return jsonify({
+        "totali": {
+            "acquisti": acquisti,
+            "consumi": consumi,
+            "eliminati": eliminati,
+            "acquisti_mese": acquisti_mese
+        },
+        "top_acquistati": [dict(r) for r in top_acquistati],
+        "top_consumati": [dict(r) for r in top_consumati],
+        "per_posizione": [dict(r) for r in per_posizione]
+    })
 
 @app.route("/api/sync-ha", methods=["GET"])
 def sync_ha():

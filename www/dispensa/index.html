@@ -363,8 +363,8 @@
     <div class="card card-body">
       <div style="font-size: 13px; font-weight: 500; margin-bottom: 12px; color: var(--muted);">Connessione backend</div>
       <div class="field">
-        <label>URL backend (es. http://192.168.1.10:5000)</label>
-        <input type="url" id="set-url" placeholder="http://192.168.x.x:5000">
+        <label>URL backend manuale (opzionale — lascia vuoto per usare l'ingress HA automaticamente)</label>
+        <input type="url" id="set-url" placeholder="es. http://192.168.x.x:5050 — usa questo SOLO se hai attivato l'accesso LAN diretto su una porta diversa da 5000">
       </div>
       <button class="btn btn-primary" onclick="salvaImpostazioni()">Salva</button>
     </div>
@@ -402,7 +402,29 @@
 <script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>
 <script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const API_BASE = () => localStorage.getItem('dispensa_url') || 'http://192.168.1.83:5000';
+// Fix: l'URL non è più hardcoded su un IP fisso (es. 192.168.1.83), che
+// funzionava solo dentro la rete LAN di casa.
+//
+// Ora rileva automaticamente il contesto:
+//  1. Override manuale salvato dall'utente (schermata Impostazioni) — ha sempre priorità.
+//     Necessario se hai attivato l'accesso LAN diretto su una porta diversa
+//     da 5000 (es. per evitare conflitti con altri servizi sul tuo NAS).
+//  2. Ingress Home Assistant: il path contiene /api/hassio_ingress/<token>/
+//     -> usiamo un percorso relativo, che funziona ovunque sia raggiungibile HA
+//     (anche da remoto/cellulare fuori rete, tramite Nabu Casa o accesso remoto HA).
+//     Questa è la modalità consigliata e quella che gestisce in automatico
+//     qualsiasi porta interna, senza che tu debba mai configurare nulla qui.
+//  3. Fallback: stesso host della pagina, porta 5000 (caso LAN diretta con
+//     porta predefinita, o sviluppo locale)
+const API_BASE = () => {
+  const override = localStorage.getItem('dispensa_url');
+  if (override) return override;
+
+  const ingressMatch = window.location.pathname.match(/^(\/api\/hassio_ingress\/[^/]+)/);
+  if (ingressMatch) return ingressMatch[1];
+
+  return `${window.location.protocol}//${window.location.hostname}:5000`;
+};
 
 let codeReader = null;
 let prodottoCorrente = {};
@@ -1048,8 +1070,13 @@ function formatDataIT(iso) {
 
 function salvaImpostazioni() {
   const url = document.getElementById('set-url').value.trim();
-  if (url) localStorage.setItem('dispensa_url', url);
+  if (url) {
+    localStorage.setItem('dispensa_url', url);
+  } else {
+    localStorage.removeItem('dispensa_url');
+  }
   toast('Impostazioni salvate');
+  document.getElementById('set-url').value = API_BASE();
   caricaInventario();
 }
 

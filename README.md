@@ -1,6 +1,6 @@
 # 🛒 Dispensa Manager — Home Assistant Add-on
 
-[![Version](https://img.shields.io/badge/version-1.0.2-green)](https://github.com/elbarto8383/Dispensa-Manager/releases)
+[![Version](https://img.shields.io/badge/version-1.1.0-green)](https://github.com/elbarto8383/Dispensa-Manager/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![HA](https://img.shields.io/badge/Home%20Assistant-Add--on-blue)](https://www.home-assistant.io/)
 
@@ -10,6 +10,7 @@ Un add-on per **Home Assistant OS** che trasforma il tuo smartphone in uno scann
 
 ## ✨ Funzionalità
 
+- 🌐 **Accesso remoto via ingress HA** — funziona anche da cellulare fuori rete, tramite il pannello laterale di Home Assistant
 - 📱 **PWA iPhone/Android** — installabile come app, funziona offline
 - 📦 **Scanner barcode** — scansiona i prodotti con la fotocamera (ZXing)
 - 🗄️ **Posizione automatica** — Frigo 🧊 / Dispensa 🗄️ / Freezer ❄️ suggeriti dalla categoria
@@ -26,6 +27,29 @@ Un add-on per **Home Assistant OS** che trasforma il tuo smartphone in uno scann
 - 🔔 **Alexa** — annunci vocali tramite Alexa Media Player
 - ⏰ **Automazioni HA** — report mattutino, sync all'avvio
 - 🔗 **API REST completa** — per integrazioni personalizzate
+
+---
+
+## 🌐 Accesso remoto (novità v1.1.0)
+
+A partire dalla versione 1.1.0 l'add-on usa l'**ingress di Home Assistant**: apparirà un'icona "Dispensa" nel menu laterale di HA, e funzionerà ovunque sia raggiungibile la tua istanza HA — anche da cellulare con dati mobili, fuori dalla rete di casa — senza bisogno di aprire porte sul router.
+
+Con l'ingress attivo, il backend ascolta su una porta interna al container (5000), che **non viene mai esposta** sul tuo host: nessun rischio di conflitto con altri servizi, incluso un NAS Synology che usa già le porte 5000/5001 per il proprio DSM.
+
+### Accesso LAN diretto (opzionale) e conflitti di porta
+
+Se preferisci anche un accesso diretto via IP (ad es. per un tablet fisso in cucina), puoi attivarlo decommentando il blocco `ports` in `dispensa_manager/config.yaml`:
+
+```yaml
+ports:
+  5000/tcp: null
+ports_description:
+  5000/tcp: "API REST Dispensa (accesso LAN diretto, opzionale)"
+```
+
+Usando `null` invece di un numero fisso, non devi scegliere la porta host nel file: dopo aver riavviato l'add-on, vai su **Impostazioni → Add-on, backup e Supervisor → Dispensa Manager → tab Rete**, e lì potrai scegliere/cambiare liberamente la porta host (ad es. `5050`) in qualsiasi momento, anche se gira su un Synology o un altro sistema dove 5000/5001 sono già occupate.
+
+Se attivi l'accesso LAN diretto su una porta diversa da 5000, ricordati di impostare l'URL manuale nella schermata **Impostazioni** della PWA (es. `http://<ip-ha>:5050`), altrimenti l'app cercherà di default sulla porta 5000.
 
 ---
 

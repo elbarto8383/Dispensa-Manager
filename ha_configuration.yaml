@@ -1,0 +1,108 @@
+# ============================================================
+# Dispensa Manager — configurazione Home Assistant
+# Aggiungi questo contenuto al tuo configuration.yaml
+# oppure nei rispettivi file se usi split config
+# ============================================================
+
+# ----- SENSORI TEMPLATE -----
+# I sensori vengono aggiornati automaticamente dal backend Flask
+# tramite REST API. Non serve configurarli qui — vengono
+# creati automaticamente come "sensor.dispensa_*"
+# Puoi però creare sensori template derivati:
+
+template:
+  - sensor:
+      - name: "Dispensa stato generale"
+        unique_id: dispensa_stato_generale
+        state: >
+          {% set scad = states('sensor.dispensa_in_scadenza') | int(0) %}
+          {% set esaur = states('sensor.dispensa_esauriti') | int(0) %}
+          {% if scad > 0 or esaur > 0 %}
+            attenzione
+          {% else %}
+            ok
+          {% endif %}
+        icon: >
+          {% if this.state == 'attenzione' %}
+            mdi:package-variant-closed-remove
+          {% else %}
+            mdi:package-variant-closed-check
+          {% endif %}
+
+# ----- AUTOMAZIONI -----
+automation:
+  # Notifica mattutina se ci sono prodotti in scadenza o esauriti
+  - id: dispensa_check_mattutino
+    alias: "Dispensa — check mattutino"
+    trigger:
+      - platform: time
+        at: "08:30:00"
+    condition:
+      - condition: or
+        conditions:
+          - condition: numeric_state
+            entity_id: sensor.dispensa_in_scadenza
+            above: 0
+          - condition: numeric_state
+            entity_id: sensor.dispensa_esauriti
+            above: 0
+    action:
+      - service: notify.telegram_bot
+        data:
+          message: >
+            🛒 Buongiorno! Aggiornamento dispensa:
+            {% if states('sensor.dispensa_in_scadenza') | int > 0 %}
+            ⚠️ {{ states('sensor.dispensa_in_scadenza') }} prodotti in scadenza
+            {% endif %}
+            {% if states('sensor.dispensa_esauriti') | int > 0 %}
+            ❌ {{ states('sensor.dispensa_esauriti') }} prodotti esauriti
+            {% endif %}
+
+  # Notifica Alexa se scadenza imminente
+  - id: dispensa_alert_alexa
+    alias: "Dispensa — annuncio Alexa scadenze"
+    trigger:
+      - platform: time
+        at: "19:00:00"
+    condition:
+      - condition: numeric_state
+        entity_id: sensor.dispensa_in_scadenza
+        above: 0
+    action:
+      - service: notify.alexa_media
+        data:
+          target: media_player.echo_cucina  # adatta al tuo device
+          data:
+            type: announce
+          message: >
+            Attenzione: hai {{ states('sensor.dispensa_in_scadenza') }}
+            prodotti in scadenza in dispensa.
+
+# ----- LOVELACE DASHBOARD (YAML mode) -----
+# Aggiungi questo come nuova view nella tua dashboard
+# oppure come pannello separato
+
+# views:
+#   - title: Dispensa
+#     icon: mdi:food-apple
+#     path: dispensa
+#     cards:
+#
+#       - type: horizontal-stack
+#         cards:
+#           - type: stat
+#             entity: sensor.dispensa_totale_prodotti
+#             name: Prodotti
+#
+#           - type: stat
+#             entity: sensor.dispensa_in_scadenza
+#             name: In scadenza
+#
+#           - type: stat
+#             entity: sensor.dispensa_esauriti
+#             name: Esauriti
+#
+#       - type: iframe
+#         url: http://192.168.x.x:5000/pwa/
+#         aspect_ratio: 75%
+#         title: Gestione dispensa

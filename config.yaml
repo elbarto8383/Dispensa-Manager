@@ -1,0 +1,29 @@
+name: "Dispensa Manager"
+description: "Backend API per la gestione della dispensa con barcode scanner"
+version: "1.0.1"
+slug: dispensa_manager
+init: false
+arch:
+  - aarch64
+  - amd64
+  - armv7
+homeassistant_api: true
+hassio_api: true
+hassio_role: default
+auth_api: true
+options:
+  telegram_token: ""
+  telegram_chat_id: ""
+  giorni_alert_scadenza: 3
+  soglia_scorte_minime: 1
+schema:
+  telegram_token: str
+  telegram_chat_id: str
+  giorni_alert_scadenza: int
+  soglia_scorte_minime: int
+ports:
+  5000/tcp: 5000
+ports_description:
+  5000/tcp: "API REST Dispensa"
+map:
+  - config:rw
